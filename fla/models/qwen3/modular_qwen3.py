@@ -18,18 +18,18 @@ from typing import Callable, Optional
 
 import torch
 
-from ...cache_utils import Cache
-from ...modeling_flash_attention_utils import FlashAttentionKwargs
-from ...modeling_outputs import CausalLMOutputWithPast
-from ...modeling_utils import ALL_ATTENTION_FUNCTIONS
-from ...processing_utils import Unpack
-from ...utils import TransformersKwargs, logging
-from ...utils.deprecation import deprecate_kwarg
-from ..gemma.modeling_gemma import GemmaMLP
-from ..llama.modeling_llama import (
+from transformers.cache_utils import Cache
+from transformers.modeling_flash_attention_utils import FlashAttentionKwargs
+from transformers.modeling_outputs import CausalLMOutputWithPast
+from transformers.modeling_utils import ALL_ATTENTION_FUNCTIONS
+from transformers.processing_utils import Unpack
+from transformers.utils import TransformersKwargs, logging
+from transformers.utils.deprecation import deprecate_kwarg
+from transformers.models.gemma.modeling_gemma import GemmaMLP
+from transformers.models.llama.modeling_llama import (
     LlamaAttention,
 )
-from ..qwen2.modeling_qwen2 import (
+from transformers.models.qwen2.modeling_qwen2 import (
     Qwen2DecoderLayer,
     Qwen2ForCausalLM,
     Qwen2ForQuestionAnswering,

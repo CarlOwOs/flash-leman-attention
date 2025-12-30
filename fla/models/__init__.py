@@ -32,6 +32,7 @@ from fla.models.rwkv6 import RWKV6Config, RWKV6ForCausalLM, RWKV6Model
 from fla.models.rwkv7 import RWKV7Config, RWKV7ForCausalLM, RWKV7Model
 from fla.models.samba import SambaConfig, SambaForCausalLM, SambaModel
 from fla.models.transformer import TransformerConfig, TransformerForCausalLM, TransformerModel
+from fla.models.qwen3 import Qwen3Config, Qwen3ForCausalLM, Qwen3Model
 
 __all__ = [
     'ABCConfig',
@@ -121,4 +122,7 @@ __all__ = [
     'TransformerConfig',
     'TransformerForCausalLM',
     'TransformerModel',
+    'Qwen3Config',
+    'Qwen3ForCausalLM',
+    'Qwen3Model',
 ]

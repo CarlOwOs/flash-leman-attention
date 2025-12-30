@@ -14,12 +14,8 @@
 # limitations under the License.
 """Qwen3 model configuration"""
 
-from ...configuration_utils import PretrainedConfig, layer_type_validation
-from ...modeling_rope_utils import rope_config_validation
-from ...utils import logging
-
-
-logger = logging.get_logger(__name__)
+from transformers.configuration_utils import PretrainedConfig, layer_type_validation
+from transformers.modeling_rope_utils import rope_config_validation
 
 
 class Qwen3Config(PretrainedConfig):

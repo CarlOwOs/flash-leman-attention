@@ -77,6 +77,8 @@ from fla.models import (
     RWKV7Model,
     TransformerForCausalLM,
     TransformerModel,
+    Qwen3ForCausalLM,
+    Qwen3Model,
 )
 
 __all__ = [
@@ -154,6 +156,8 @@ __all__ = [
     "RodimusModel",
     "TransformerForCausalLM",
     "TransformerModel",
+    "Qwen3ForCausalLM",
+    "Qwen3Model",
 ]
 
 __version__ = "0.4.2"
