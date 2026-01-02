@@ -27,6 +27,7 @@ from fla.layers import (
     RodimusAttention,
     RWKV6Attention,
     RWKV7Attention,
+    RoutingMemoryAttention,
 )
 from fla.models import (
     ABCForCausalLM,
@@ -79,6 +80,8 @@ from fla.models import (
     TransformerModel,
     Qwen3ForCausalLM,
     Qwen3Model,
+    RoutMemModel,
+    RoutMemForCausalLM
 )
 
 __all__ = [
@@ -158,6 +161,7 @@ __all__ = [
     "TransformerModel",
     "Qwen3ForCausalLM",
     "Qwen3Model",
+    'RoutingMemoryAttention', 'RoutMemForCausalLM', 'RoutMemModel',
 ]
 
 __version__ = "0.4.2"
