@@ -154,23 +154,11 @@ class RoutingMemoryAttention(nn.Module):
             self.f_proj = nn.Linear(self.hidden_size, self.num_kv_heads * self.num_slots, bias=False)
             
         ## ===== Router  =====     
-        if self.bias_rmm:    
-            self.r_bias =  nn.Parameter(torch.empty( ( self.num_heads , self.num_slots) , dtype=torch.float32))
-        
         if  self.router_type == 'lin':
             self.r_proj = nn.Linear(self.hidden_size, self.num_heads * self.num_slots , bias=False) 
         
         elif  self.router_type == 'mlp':
-            self.r_proj = nn.Sequential(
-            nn.Linear(self.hidden_size, self.hidden_size, bias=True),
-            nn.GELU(),
-            nn.Linear(self.hidden_size, self.num_heads * self.num_slots, bias=False) )
-        
-        self.score_fn = (
-            (lambda x: torch.sigmoid(x))
-            if self.router_score == "sigmoid"
-            else (lambda x: torch.softmax(x, dim=-1))
-        )
+            print('Router not impplementation')
         
         
         ## ===== RoPE  =====    
@@ -268,28 +256,20 @@ class RoutingMemoryAttention(nn.Module):
         v = F.silu(v)
         
         # Build RMM Router
-        if self.add_gumbel_noise:
-            if self.training:
-                router = router - torch.empty_like(router).exponential_().log()
-                      
-        orig_scores = self.score_fn(router)
-        if self.bias_rmm:
-            scores = orig_scores + self.r_bias.float()
+        
+        top_k_index = self.topk 
+        if self.training:
+            scores = torch.sigmoid ( (router  - torch.empty_like(router).exponential_().log())/4.0 )
         else:
-            scores = orig_scores
-        
-        route_idx = scores.topk(self.topk, dim=-1).indices
-        topk_weights =  torch.gather(orig_scores, dim=-1, index=route_idx)
-        
-        if self.router_score == 'sigmoid':
-            topk_weights /= (topk_weights.sum(dim=-1, keepdim=True) + 1e-9)
-            
-        s_multihot = torch.zeros_like(router).scatter_(-1, route_idx, topk_weights.to(router.dtype))
+            scores = torch.sigmoid (router /4.0 ) 
+        route_idx = scores.topk(top_k_index, dim=-1).indices
+        topk_weights =  torch.gather(scores, dim=-1, index=route_idx) 
+        topk_weights = topk_weights / (topk_weights.sum(dim=-1, keepdim=True) + 1e-9)
+
+        s_multihot = torch.zeros_like(router).scatter_(-1, route_idx, topk_weights)
         
         f = (f*s_multihot).to(q.dtype)
         s = (1-f.exp()).to(q.dtype)
-        
-        # I can anyway have the non binary case to add form the rigth side of the equation.
         
         recurrent_state = last_state['recurrent_state'] if last_state is not None else None
         if self.num_kv_groups > 1:
