@@ -131,7 +131,9 @@ class RoutingMemoryAttention(nn.Module):
         if self.decay_type == 'Mamba2':
             # Decay of Mamba2
             self.a_proj = nn.Linear(self.hidden_size, self.num_heads, bias=False)
-            A = torch.empty(self.num_heads, dtype=torch.float32).uniform_(0, 16)
+            # keep decay parameters in the model's default dtype (configured via HF),
+            # otherwise they stay in fp32 and trip FSDP's uniform-dtype check
+            A = torch.empty(self.num_heads).uniform_(0, 16)
             self.A_log = nn.Parameter(torch.log(A))
             self.A_log._no_weight_decay = True
             # hard coded for now
@@ -266,14 +268,17 @@ class RoutingMemoryAttention(nn.Module):
         topk_weights =  torch.gather(scores, dim=-1, index=route_idx) 
         topk_weights = topk_weights / (topk_weights.sum(dim=-1, keepdim=True) + 1e-9)
 
-        s_multihot = torch.zeros_like(router).scatter_(-1, route_idx, topk_weights)
+        topk_weights = topk_weights.to(dtype=router.dtype)
+        s_multihot = torch.zeros_like(router, dtype=router.dtype).scatter_(-1, route_idx, topk_weights)
         
         f = (f*s_multihot).to(q.dtype)
         s = (1-f.exp()).to(q.dtype)
         
         recurrent_state = last_state['recurrent_state'] if last_state is not None else None
+        # Only expand K/V to match attention heads when using grouped KV; router/decay are already per head
         if self.num_kv_groups > 1:
-            k, v, f, s = map(lambda x: repeat(x, '... h d -> ... (h g) d', g=self.num_kv_groups), (k, v, f, s))
+            # k, v, f, s = map(lambda x: repeat(x, '... h d -> ... (h g) d', g=self.num_kv_groups), (k, v, f, s))
+            k, v = map(lambda x: repeat(x, '... h d -> ... (h g) d', g=self.num_kv_groups), (k, v))
 
         if mode == 'fused_recurrent': 
             o, recurrent_state = fused_recurrent_routmem(

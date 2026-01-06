@@ -29,6 +29,7 @@ import torch
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 
 import fla  # noqa
+import fla.models.gated_deltanet
 
 
 def sizeof_fmt(num, suffix='B'):
@@ -99,21 +100,21 @@ def convert(
         print(f"llama.model.layers{i}.attn.q_proj.weight  -> model.model.layers{i}.attn.q_proj.weight")
         model.model.layers[i].attn.q_proj.weight.data.copy_(llama.model.layers[i].self_attn.q_proj.weight)
         torch.testing.assert_close(model.model.layers[i].attn.q_proj.weight, llama.model.layers[i].self_attn.q_proj.weight)
-        if hasattr(llama.model.layers[i].self_attn.q_proj, 'bias') and hasattr(model.model.layers[i].attn.q_proj, 'bias'):
+        if llama.model.layers[i].self_attn.q_proj.bias and model.model.layers[i].attn.q_proj.bias:
             print(f"llama.model.layers{i}.attn.q_proj.bias  -> model.model.layers{i}.attn.q_proj.bias")
             model.model.layers[i].attn.q_proj.bias.data.copy_(llama.model.layers[i].self_attn.q_proj.bias)
             torch.testing.assert_close(model.model.layers[i].attn.q_proj.bias, llama.model.layers[i].self_attn.q_proj.bias)
         print(f"llama.model.layers.{i}.attn.k_proj.weight -> model.model.layers.{i}.attn.k_proj.weight")
         model.model.layers[i].attn.k_proj.weight.data.copy_(llama.model.layers[i].self_attn.k_proj.weight)
         torch.testing.assert_close(model.model.layers[i].attn.k_proj.weight, llama.model.layers[i].self_attn.k_proj.weight)
-        if hasattr(llama.model.layers[i].self_attn.k_proj, 'bias') and hasattr(model.model.layers[i].attn.k_proj, 'bias'):
+        if llama.model.layers[i].self_attn.k_proj.bias and model.model.layers[i].attn.k_proj.bias:
             print(f"llama.model.layers{i}.attn.k_proj.bias  -> model.model.layers{i}.attn.k_proj.bias")
             model.model.layers[i].attn.k_proj.bias.data.copy_(llama.model.layers[i].self_attn.k_proj.bias)
             torch.testing.assert_close(model.model.layers[i].attn.k_proj.bias, llama.model.layers[i].self_attn.k_proj.bias)
         print(f"llama.model.layers.{i}.attn.v_proj.weight -> model.model.layers.{i}.attn.v_proj.weight")
         model.model.layers[i].attn.v_proj.weight.data.copy_(llama.model.layers[i].self_attn.v_proj.weight)
         torch.testing.assert_close(model.model.layers[i].attn.v_proj.weight, llama.model.layers[i].self_attn.v_proj.weight)
-        if hasattr(llama.model.layers[i].self_attn.v_proj, 'bias') and hasattr(model.model.layers[i].attn.v_proj, 'bias'):
+        if llama.model.layers[i].self_attn.v_proj.bias and model.model.layers[i].attn.v_proj.bias:
             print(f"llama.model.layers{i}.attn.v_proj.bias  -> model.model.layers{i}.attn.v_proj.bias")
             model.model.layers[i].attn.v_proj.bias.data.copy_(llama.model.layers[i].self_attn.v_proj.bias)
             torch.testing.assert_close(model.model.layers[i].attn.v_proj.bias, llama.model.layers[i].self_attn.v_proj.bias)
@@ -184,6 +185,6 @@ if __name__ == "__main__":
     parser.add_argument("--model", default='mistralai/Mistral-7B-v0.1')
     parser.add_argument("--config", default='configs/transformer_7B.json')
     parser.add_argument("--output", default='converted/transformer-7B')
-    parser.add_argument('--precision', type=str, default='float32')
+    parser.add_argument('--precision', type=str, default='bfloat16')
     args = parser.parse_args()
     convert(args.model, args.config, args.output, precision=args.precision)
