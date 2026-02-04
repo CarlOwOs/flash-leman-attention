@@ -1,6 +1,3 @@
-# -*- coding: utf-8 -*-
-# Copyright (c) 2023-2025, Songlin Yang, Yu Zhang
-
 from __future__ import annotations
 
 import warnings
@@ -40,7 +37,6 @@ def _max_offset(seqlen_offset):
     # list/tuple/other iterables
     return max(seqlen_offset)
 
-
 class RoutingMemoryAttention(nn.Module):
 
     def __init__(
@@ -54,19 +50,15 @@ class RoutingMemoryAttention(nn.Module):
         num_slots: Optional[int] = None,
         elementwise_affine: Optional[bool] = True,
         norm_eps: float = 1e-5,
-        gate_logit_normalizer: int = 8,
+        gate_logit_normalizer: int = 4,
         feature_map: str = 'swish',
         use_output_gate: bool = False,
         use_norm: bool = True,
         layer_idx: Optional[int] = None,
         scale: Optional[float] = 1.,
         decay_type: str = 'Mamba2',
-        topk: int = 32,
-        bias_rmm: bool = False,
-        add_gumbel_noise: bool = True,
-        router_score: str = 'sigmoid',
-        router_type: str = 'lin',
-        use_rope: bool = False,
+        topk: int =128,
+        use_rope: bool = True,
         **kwargs
     ) -> RoutingMemoryAttention:
         super().__init__()
@@ -92,12 +84,6 @@ class RoutingMemoryAttention(nn.Module):
         self.use_norm = use_norm
         self.scale = scale
         self.rope_theta = 10000.
-        
-        ##  For Router Design
-        self.bias_rmm = bias_rmm  # For no gumbel router with bias
-        self.add_gumbel_noise = add_gumbel_noise  # For no gumbel router with bias
-        self.router_score = router_score
-        self.router_type = router_type
 
         if num_slots is None:
             num_slots = self.head_k_dim
@@ -121,19 +107,16 @@ class RoutingMemoryAttention(nn.Module):
             self.feature_map = T2RFeatureMap(self.head_k_dim, self.head_k_dim)
         else:
             raise NotImplementedError(f"Feature map `{feature_map}` is not supported now.")
-        
-        ## ===== QKV Proj =====
+
         self.q_proj = nn.Linear(self.hidden_size, self.key_dim, bias=False)
         self.k_proj = nn.Linear(self.hidden_size, self.key_dim_per_group, bias=False)
         self.v_proj = nn.Linear(self.hidden_size, self.value_dim_per_group, bias=False)
         
-        ## ===== Forget Gate/ Decay =====
+        
         if self.decay_type == 'Mamba2':
             # Decay of Mamba2
             self.a_proj = nn.Linear(self.hidden_size, self.num_heads, bias=False)
-            # keep decay parameters in the model's default dtype (configured via HF),
-            # otherwise they stay in fp32 and trip FSDP's uniform-dtype check
-            A = torch.empty(self.num_heads).uniform_(0, 16)
+            A = torch.empty(self.num_heads, dtype=torch.float32).uniform_(0, 16)
             self.A_log = nn.Parameter(torch.log(A))
             self.A_log._no_weight_decay = True
             # hard coded for now
@@ -155,29 +138,18 @@ class RoutingMemoryAttention(nn.Module):
         elif self.decay_type == 'GLA':
             self.f_proj = nn.Linear(self.hidden_size, self.num_kv_heads * self.num_slots, bias=False)
             
-        ## ===== Router  =====     
-        if  self.router_type == 'lin':
-            self.r_proj = nn.Linear(self.hidden_size, self.num_heads * self.num_slots , bias=False) 
-        
-        elif  self.router_type == 'mlp':
-            print('Router not impplementation')
-        
-        
-        ## ===== RoPE  =====    
-        if self.use_rope:
-            self.rotary = RotaryEmbedding(dim=self.head_k_dim, base=self.rope_theta)   # Added for RoPE
-        
-        ## ===== QK Norm  =====    
+        self.r_proj = nn.Linear(self.hidden_size, self.num_heads * self.num_slots , bias=False)
+
         self.q_norm = RMSNorm(self.head_k_dim, elementwise_affine, eps=norm_eps)
         self.k_norm = RMSNorm(self.head_k_dim, elementwise_affine, eps=norm_eps)
-    
-        ## ===== Output Layer  =====    
+        
         if self.use_output_gate:
             self.o_gate_proj = nn.Linear(hidden_size, self.value_dim, bias=False)
             self.o_norm = FusedRMSNormGated(self.head_v_dim, eps=norm_eps)  
         else:
             self.g_norm = RMSNorm(self.hidden_size, elementwise_affine, eps=norm_eps)
           
+            
         self.o_proj = nn.Linear(self.value_dim, self.hidden_size, bias=False)
 
     def forward(
@@ -231,54 +203,28 @@ class RoutingMemoryAttention(nn.Module):
         # QK Norm       
         q, k = self.q_norm(q), self.k_norm(k)
         
-        if self.use_rope:
-            assert batch_size == 1, "RoPE is not supported for batch size > 1"
-            max_seqlen = max(max_seqlen, 8192)  # Added for RoPE
-            q, k = self.rotary(q, k, seqlen_offset=seqlen_offset, max_seqlen=max_seqlen, cu_seqlens=cu_seqlens)  #Added for RoPE
-            # new_q = torch.empty_like(q)
-            # new_k = torch.empty_like(k)
-            # for i in range(q.shape[0]):
-            #     raw_offset = seqlen_offset[i] if isinstance(seqlen_offset, torch.Tensor) else seqlen_offset
-            #     offset = int(raw_offset) if isinstance(raw_offset, torch.Tensor) else raw_offset
-            #     offset = max(offset, 0)
-            #     max_seqlen_i = max(max_seqlen, q.shape[1] + offset)
-            #     rotated_q, rotated_k = self.rotary(
-            #         q[i : i + 1],
-            #         k[i : i + 1],
-            #         seqlen_offset=offset,
-            #         max_seqlen=max_seqlen_i,
-            #         cu_seqlens=cu_seqlens,
-            #     )
-            #     new_q[i : i + 1] = rotated_q
-            #     new_k[i : i + 1] = rotated_k
-            # q = new_q
-            # k = new_k      
-
+       
         # V Feature map
         v = F.silu(v)
         
-        # Build RMM Router
-        
-        top_k_index = self.topk 
+        # Build K-hot Routing
         if self.training:
-            scores = torch.sigmoid ( (router  - torch.empty_like(router).exponential_().log())/4.0 )
+            scores = torch.sigmoid ( (router  - torch.empty_like(router).exponential_().log()) )
         else:
-            scores = torch.sigmoid (router /4.0 ) 
-        route_idx = scores.topk(top_k_index, dim=-1).indices
-        topk_weights =  torch.gather(scores, dim=-1, index=route_idx) 
+            scores = torch.sigmoid (router )
+        route_idx = scores.topk(self.topk, dim=-1).indices
+        topk_weights =  torch.gather(scores, dim=-1, index=route_idx)
         topk_weights = topk_weights / (topk_weights.sum(dim=-1, keepdim=True) + 1e-9)
 
-        topk_weights = topk_weights.to(dtype=router.dtype)
-        s_multihot = torch.zeros_like(router, dtype=router.dtype).scatter_(-1, route_idx, topk_weights)
+        s_multihot = torch.zeros_like(router).scatter_(-1, route_idx, topk_weights.to(router.dtype))
         
+        # Apply Routing
         f = (f*s_multihot).to(q.dtype)
         s = (1-f.exp()).to(q.dtype)
         
         recurrent_state = last_state['recurrent_state'] if last_state is not None else None
-        # Only expand K/V to match attention heads when using grouped KV; router/decay are already per head
         if self.num_kv_groups > 1:
-            # k, v, f, s = map(lambda x: repeat(x, '... h d -> ... (h g) d', g=self.num_kv_groups), (k, v, f, s))
-            k, v = map(lambda x: repeat(x, '... h d -> ... (h g) d', g=self.num_kv_groups), (k, v))
+            k, v, f, s = map(lambda x: repeat(x, '... h d -> ... (h g) d', g=self.num_kv_groups), (k, v, f, s))
 
         if mode == 'fused_recurrent': 
             o, recurrent_state = fused_recurrent_routmem(
